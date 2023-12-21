@@ -6,8 +6,10 @@ from keras.layers import Dense
 from keras.models import Sequential, load_model
 from keras.layers import LSTM, Dense
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from keras.utils import to_categorical
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from keras.utils import to_categorical, plot_model
+from keras.callbacks import EarlyStopping
+import matplotlib.pyplot as plt
 
 # Load the dataset
 file_path = 's00.csv'
@@ -17,17 +19,12 @@ dataframe = pd.read_csv(file_path)
 X = dataframe.iloc[:, :-1].values
 y = dataframe.iloc[:, -1].values
 
-# Check if labels are non-negative integers
-if not np.issubdtype(y.dtype, np.integer) or np.any(y < 0):
-    # Map labels to a zero-based integer range
-    unique_labels = np.unique(y)
-    label_mapping = {label: idx for idx, label in enumerate(unique_labels)}
-    y = np.array([label_mapping[label] for label in y])
+# Label encoding (if labels are not numeric)
+label_encoder = LabelEncoder()
+y_encoded = label_encoder.fit_transform(y)
 
-y_min = y.min()
-if y_min != 0:
-    print(f"Adjusting labels to be zero-based. Original min label: {y_min}")
-    y = y - y_min
+# One-hot encode labels
+y_categorical = to_categorical(y_encoded)
 
 # Apply Wavelet Packet Decomposition (WPD)
 def apply_wpd(data, wavelet='db4', max_level=5):
@@ -38,40 +35,48 @@ def apply_wpd(data, wavelet='db4', max_level=5):
         wpd_features.append(concatenated_features)
     return np.array(wpd_features)
 
-# Reshape the data appropriately for WPD
-n_samples = len(X)  # Assuming each row is a separate sample
-X_reshaped = X.reshape(n_samples, -1)  # The -1 infers the correct dimension
-
-# Apply WPD
-X_wpd = apply_wpd(X_reshaped)
+# Apply WPD to each sample
+X_wpd = apply_wpd(X)
 
 # Feature Scaling
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_wpd)
 
-# One-hot encode labels
-y_categorical = to_categorical(y)
-
 # Reshape the data for LSTM input
-num_time_steps = 1  # Adjust this based on your data's time steps per sample
-num_features = X_scaled.shape[1]  # Number of features after WPD
-X_lstm = X_scaled.reshape((-1, num_time_steps, num_features))
+num_samples, num_features = X_scaled.shape
+num_time_steps = 1  # This should be adjusted based on your EEG data structure
+X_lstm = X_scaled.reshape((num_samples, num_time_steps, num_features))
 
 # Split the dataset into training and test sets
 X_train, X_test, y_train, y_test = train_test_split(X_lstm, y_categorical, test_size=0.2, random_state=42)
 
 # Build the LSTM model
 model = Sequential()
-model.add(LSTM(50, return_sequences=True, input_shape=(num_time_steps, num_features)))
-model.add(LSTM(20))
+model.add(LSTM(100, return_sequences=True, input_shape=(num_time_steps, num_features)))
+model.add(LSTM(50))
 model.add(Dense(y_categorical.shape[1], activation='softmax'))
 
 # Compile the model
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
+# Early stopping to prevent overfitting
+early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
 # Train the model
-history = model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.1)
+history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.1, callbacks=[early_stopping])
 
 # Evaluate the model on the test set
 test_loss, test_accuracy = model.evaluate(X_test, y_test)
 print(f"Test accuracy: {test_accuracy:.4f}")
+
+plot_model(model, to_file='model_plot.png', show_shapes=True, show_layer_names=True)
+
+plt.figure(figsize=(12, 6))
+for i in range(min(5, len(dataframe.columns) - 1)):  # Plot the first 5 channels
+    plt.plot(dataframe.iloc[:100, i], label=f'Channel {i+1}')  # Plot first 100 data points
+
+plt.title('EEG Data Visualization')
+plt.xlabel('Time Points')
+plt.ylabel('EEG Reading')
+plt.legend()
+plt.show()

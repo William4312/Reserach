@@ -12,7 +12,7 @@ from keras.callbacks import EarlyStopping
 import matplotlib.pyplot as plt
 
 # Load the dataset
-file_path = 's00.csv'
+file_path = 's01.csv'
 dataframe = pd.read_csv(file_path)
 
 # Assuming the last column is the label

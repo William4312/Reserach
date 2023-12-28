@@ -6,9 +6,10 @@ from sklearn.preprocessing import StandardScaler
 from tensorflow import keras
 from keras import layers
 from sklearn.metrics import accuracy_score
+import matplotlib.pyplot as plt 
 
 df = pd.read_csv('s00.csv')
-eeg_signal = df['signal_1'].values
+eeg_signal = df.values
 
 def wavelet_packet_decomposition(signal, wavelet='db1', level=4):
     coeffs = pywt.wavedec(signal, wavelet, level=level, mode='symmetric')
@@ -16,6 +17,9 @@ def wavelet_packet_decomposition(signal, wavelet='db1', level=4):
 
 wavelet_level = 4
 wavelet_coeffs = wavelet_packet_decomposition(eeg_signal, 'db1', wavelet_level)
+max_length = max(arr.size for arr in wavelet_coeffs)
+padded_coeffs = [np.pad(arr, (0, max_length - arr.size), 'constant', constant_values=0).flatten() for arr in wavelet_coeffs]
+flattened_coeffs = np.concatenate([coeff.flatten() for coeff in wavelet_coeffs])
 
 def plot_wavelet_packets(coeffs, title='Wavelet Packet Decomposition'):
     fig, axs = plt.subplots(len(coeffs) + 1, 1, figsize=(10, 2 * len(coeffs) + 2))
@@ -31,11 +35,10 @@ def plot_wavelet_packets(coeffs, title='Wavelet Packet Decomposition'):
     plt.tight_layout()
     plt.show()
 
-plot_wavelet_packets(wavelet_coeffs, title=f'Wavelet Packet Decomposition - db1, Level {wavelet_level}')
-features = np.concatenate(wavelet_coeffs)
+features = np.concatenate(flattened_coeffs)
 
 scaler = StandardScaler()
-scaled_features = scaler.fit_transform(features.reshape(-1, 1)).flatten()
+scaled_features = scaler.fit_transform(flattened_coeffs.reshape(-1, 1)).flatten()
 
 num_time_steps = 128
 num_features = scaled_features.shape[0] // num_time_steps
@@ -62,3 +65,4 @@ y_pred_binary = (y_pred > 0.5).astype(int)  # Assuming binary classification
 test_accuracy = accuracy_score(y_test, y_pred_binary)
 
 print(f'Test Accuracy: {test_accuracy * 100:.2f}%')
+plot_wavelet_packets(wavelet_coeffs, title=f'Wavelet Packet Decomposition - db1, Level {wavelet_level}')
